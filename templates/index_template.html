@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kindle Capture Viewer - __TOTAL_PAGES__ Pages</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif; height: 100vh; overflow: hidden; }
+    .active-link { background-color: #3b82f6; color: white; }
+    @media (max-width: 768px) {
+      .sidebar { position: fixed; bottom: 0; left: 0; width: 100%; height: 84px; flex-direction: row; overflow-x: auto; white-space: nowrap; z-index: 50; }
+      .sidebar-inner { flex-direction: row; width: 100%; height: 100%; overflow-x: auto; }
+      .main-content { height: calc(100vh - 84px); width: 100%; margin-left: 0; }
+      .nav-item { min-width: 80px; justify-content: center; text-align: center; border-bottom: none; border-right: 1px solid #e5e7eb; }
+      .search-wrap { display: none; }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 flex flex-col md:flex-row h-screen">
+  <div class="sidebar md:w-72 bg-white border-r border-slate-200 flex flex-col shadow-sm md:h-full">
+    <div class="p-4 border-b border-slate-200 hidden md:block">
+      <h1 class="text-xl font-bold text-slate-800">Kindle Capture</h1>
+      <p class="text-xs text-slate-500 mt-1"><span id="result-count">__TOTAL_PAGES__</span> Pages</p>
+    </div>
+    <div class="search-wrap px-4 py-3 border-b border-slate-200">
+      <input id="search-input" type="text" placeholder="本文から検索" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+      <p class="text-[11px] text-slate-500 mt-1">検索は本文テキストの簡易インデックスを使用</p>
+    </div>
+    <div class="px-4 py-3 border-b border-slate-200">
+      <label class="flex items-center gap-2 text-sm text-slate-700 select-none">
+        <input id="image-toggle" type="checkbox" class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-400" checked />
+        画像を表示
+      </label>
+    </div>
+    <div class="sidebar-inner flex-1 overflow-y-auto">
+      <nav id="nav-list" class="flex md:flex-col"></nav>
+    </div>
+  </div>
+
+  <div class="main-content flex-1 bg-slate-100 h-full p-0 md:p-4 overflow-hidden relative">
+    <div class="h-full flex flex-col md:flex-row gap-2 md:gap-4">
+      <div class="flex-1 h-full bg-white md:rounded-xl md:shadow-lg overflow-hidden">
+        <iframe id="content-frame" class="w-full h-full border-none"></iframe>
+      </div>
+      <div id="image-pane" class="flex-1 h-full bg-white md:rounded-xl md:shadow-lg overflow-hidden flex items-center justify-center">
+        <img id="image-view" class="max-h-full max-w-full object-contain" alt="Captured page" />
+      </div>
+    </div>
+
+    <div class="absolute bottom-20 right-4 md:bottom-8 md:right-8 flex space-x-2">
+      <button onclick="prevPage()" class="bg-white/90 backdrop-blur text-slate-700 hover:text-blue-600 p-3 rounded-full shadow-lg border border-slate-200 transition-all hover:scale-105" title="前のページ">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+      </button>
+      <button onclick="nextPage()" class="bg-white/90 backdrop-blur text-slate-700 hover:text-blue-600 p-3 rounded-full shadow-lg border border-slate-200 transition-all hover:scale-105" title="次のページ">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    let pages = [];
+    let filteredPages = [];
+    let currentIndex = 0;
+
+    function renderNav() {
+      const nav = document.getElementById("nav-list");
+      nav.innerHTML = "";
+      const count = document.getElementById("result-count");
+      if (count) count.textContent = String(filteredPages.length);
+
+      if (!filteredPages.length) {
+        nav.innerHTML = '<div class="p-4 text-sm text-slate-500">該当ページがありません</div>';
+        clearView();
+        return;
+      }
+
+      filteredPages.forEach((page, idx) => {
+        const btn = document.createElement("button");
+        btn.dataset.index = String(idx);
+        btn.id = "btn-" + page.html;
+        btn.className = "nav-item w-full text-left px-4 py-3 text-sm font-medium transition-colors border-b border-slate-100 md:border-b-0 hover:bg-slate-50 text-slate-600";
+        btn.textContent = page.label || page.stem || page.html;
+        btn.onclick = () => loadPageByIndex(idx);
+        nav.appendChild(btn);
+      });
+
+      setActiveButton();
+    }
+
+    function setActiveButton() {
+      document.querySelectorAll(".nav-item").forEach(el => {
+        const idx = Number(el.dataset.index || -1);
+        if (idx === currentIndex) {
+          el.classList.add("active-link");
+          el.classList.remove("hover:bg-slate-50", "text-slate-600");
+          el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        } else {
+          el.classList.remove("active-link");
+          el.classList.add("hover:bg-slate-50", "text-slate-600");
+        }
+      });
+    }
+
+    function clearView() {
+      const iframe = document.getElementById("content-frame");
+      const image = document.getElementById("image-view");
+      if (iframe) iframe.src = "";
+      if (image) image.src = "";
+    }
+
+    function loadPageByIndex(index) {
+      const page = filteredPages[index];
+      if (!page) {
+        clearView();
+        return;
+      }
+      const iframe = document.getElementById("content-frame");
+      const image = document.getElementById("image-view");
+      if (iframe) iframe.src = page.html;
+      if (image) image.src = page.image || "";
+      currentIndex = index;
+      setActiveButton();
+    }
+
+    function nextPage() {
+      if (currentIndex < filteredPages.length - 1) {
+        loadPageByIndex(currentIndex + 1);
+      }
+    }
+
+    function prevPage() {
+      if (currentIndex > 0) {
+        loadPageByIndex(currentIndex - 1);
+      }
+    }
+
+    document.addEventListener("keydown", function(event) {
+      if (event.key === "ArrowRight") nextPage();
+      if (event.key === "ArrowLeft") prevPage();
+    });
+
+    async function fetchSearch(query) {
+      const url = query ? `/search?query=${encodeURIComponent(query)}` : `/search`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        pages = data.pages || [];
+        filteredPages = pages;
+        currentIndex = 0;
+        renderNav();
+        if (filteredPages.length) loadPageByIndex(0);
+      } catch (e) {
+        const nav = document.getElementById("nav-list");
+        if (nav) nav.innerHTML = '<div class="p-4 text-sm text-red-500">検索APIに接続できません</div>';
+      }
+    }
+
+    const searchInput = document.getElementById("search-input");
+    const imageToggle = document.getElementById("image-toggle");
+    const imagePane = document.getElementById("image-pane");
+    if (imageToggle && imagePane) {
+      imageToggle.addEventListener("change", (e) => {
+        const enabled = e.target.checked;
+        imagePane.classList.toggle("hidden", !enabled);
+      });
+    }
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        const query = (e.target.value || "").trim().toLowerCase();
+        fetchSearch(query);
+      });
+    }
+
+    fetchSearch("");
+  </script>
+</body>
+</html>
