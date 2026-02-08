@@ -1,0 +1,63 @@
+graph TD
+    %% Actors and External Systems
+    User((User))
+    Kindle[Kindle for Mac]
+    NotebookLM[NotebookLM]
+
+    %% Data Stores
+    Images[("Images Folder\n(capture/timestamp/images/*.png)")]
+    HtmlFiles[("HTML Folder\n(capture/timestamp/html/*.html)")]
+    ViewerFiles[("Viewer Files\n(index.html, server.py)")]
+    AiPdf[("AI PDF\n(book.pdf / book-*.pdf)")]
+    LightPdf[("Light PDF\n(book_light.pdf)")]
+
+    %% Processes
+    subgraph Pipeline [Kindle to PDF Pipeline]
+        direction TB
+        
+        subgraph S1 [Step 1: Capture]
+            S1_Proc[screen capture & crop]
+            S1_Resume{Resume Check}
+        end
+
+        subgraph S2 [Step 2: OCR & HTML]
+            S2_Proc[YomiToku OCR]
+            S2_Gen[HTML Generation]
+            S2_Resume{Resume Check}
+        end
+
+        subgraph S3 [Step 3: PDF for AI]
+            S3_Proc[Playwright Renderer]
+            S3_Split[PDF Splitter]
+        end
+        
+        subgraph S4 [Step 4: PDF for Humans]
+            S4_Proc[Grayscale & Quantize]
+            S4_Merge[Image Merge]
+        end
+    end
+
+    %% Flow Definitions
+    User -->|Run Script| S1_Proc
+    S1_Proc <-->|Page Turn / Screenshot| Kindle
+    S1_Resume -.->|Check Last Page| Images
+    S1_Proc -->|Save| Images
+
+    Images -->|Input| S2_Proc
+    S2_Resume -.->|Check Last HTML| HtmlFiles
+    S2_Proc --> S2_Gen
+    S2_Gen -->|Save| HtmlFiles
+    S2_Gen -->|Generate| ViewerFiles
+
+    HtmlFiles -->|Input| S3_Proc
+    S3_Proc --> S3_Split
+    S3_Split -->|Save| AiPdf
+
+    Images -->|Input| S4_Proc
+    S4_Proc --> S4_Merge
+    S4_Merge -->|Save| LightPdf
+
+    %% Usage
+    ViewerFiles -.->|Local Preview| User
+    AiPdf -.->|Upload| NotebookLM
+    LightPdf -.->|Read on Mobile| User

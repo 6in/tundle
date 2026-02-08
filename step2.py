@@ -63,18 +63,23 @@ def process_kindle_captures_to_html(input_dir, output_dir=None):
     output_path.mkdir(parents=True, exist_ok=True)
     
     # 画像ファイルを取得（*.png, *.jpg, *.jpeg）
+    # input_dir/images フォルダが存在する場合はそこから取得、なければ input_dir (後方互換)
+    images_dir = input_path / "images"
+    if not images_dir.exists():
+        images_dir = input_path
+
     image_files = []
     for ext in ['*.png', '*.jpg', '*.jpeg']:
-        image_files.extend(sorted(input_path.glob(ext)))
+        image_files.extend(sorted(images_dir.glob(ext)))
     
     if not image_files:
-        print(f"エラー: 画像ファイルが見つかりません: {input_dir}")
+        print(f"エラー: 画像ファイルが見つかりません: {images_dir}")
         return
     
     print("=" * 60)
     print(f"📚 Kindleキャプチャ → HTML変換")
     print("=" * 60)
-    print(f"入力ディレクトリ: {input_path}")
+    print(f"入力ディレクトリ: {images_dir}")
     print(f"出力ディレクトリ: {output_path}")
     print(f"処理対象ファイル数: {len(image_files)}ファイル")
     print()
@@ -97,8 +102,30 @@ def process_kindle_captures_to_html(input_dir, output_dir=None):
     model = DocumentAnalyzer(device=device)
     print("✓ YomiToku準備完了\n")
     
+    # リラン時処理：既存のHTMLから再開位置を特定
+    # 最後に処理されたと思われるHTMLファイル（ファイル名順）を探す
+    resume_target_stem = None
+    existing_htmls = sorted([
+        f for f in output_path.glob("*.html") 
+        if "index.html" not in f.name and "temp" not in f.name
+    ])
+    
+    if existing_htmls:
+        last_html = existing_htmls[-1]
+        resume_target_stem = last_html.stem
+        print(f"🔄 既存の進行状況を検出: 最後のファイルは {last_html.name}")
+        print(f"👉 {last_html.name} に対応する画像から処理を再開・再生成します。")
+        print(f"   (それ以前のファイルはスキップされます)")
+        print()
+
     # 各画像を処理
     for idx, image_file in enumerate(image_files, 1):
+        # スキップ判定
+        if resume_target_stem:
+            # 現在の画像ファイル名(拡張子なし)が、最後に処理したファイルより辞書順で小さい場合はスキップ
+            if image_file.stem < resume_target_stem:
+                continue
+        
         print(f"[{idx}/{len(image_files)}] 処理中: {image_file.name}")
         
         try:

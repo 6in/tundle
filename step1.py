@@ -17,7 +17,7 @@ import argparse
 
 # グローバル変数の設定
 kindle_window_title = "Kindle"  # Kindle for Macのアプリケーション名
-page_change_key = "right"  # 次のページへ移動するキー
+page_change_key = "right"  # 次のページへ移動するキー（コマンドライン引数で上書き）
 kindle_fullscreen_wait = 5  # フルスクリーン後の待機時間(秒)
 l_margin = 1  # 左側マージン
 r_margin = 1  # 右側マージン
@@ -180,7 +180,7 @@ def capture_kindle_screenshot():
             screenshot_array = crop_image(screenshot)
             # NumPy配列をPIL Imageに戻す
             from PIL import Image
-            screenshot = Image.fromarray(cv2.cvtColor(screenshot_array, cv2.COLOR_BGR2RGB))
+            screenshot = Image.fromarray(screenshot_array)
         return screenshot
     except Exception as e:
         print(f"警告: ImageGrab失敗（{e}）、代替方法を試行中...")
@@ -256,10 +256,68 @@ def capture_and_save_pages(lft, rht, title, max_pages_limit=None):
     page = 1
     # 保存先フォルダの設定
     cd = os.getcwd()
+    # 画像保存先のサブフォルダを作成
     target_folder = osp.join(base_save_folder, title)
-    os.makedirs(target_folder, exist_ok=True)
-    os.chdir(target_folder)
-    
+    images_folder = osp.join(target_folder, "images")
+    os.makedirs(images_folder, exist_ok=True)
+    os.chdir(images_folder)
+
+    # ---------------------------------------------------------
+    # リラン時の再開処理
+    # ---------------------------------------------------------
+    existing_files = [f for f in os.listdir('.') if f.endswith('.png')]
+    if existing_files:
+        try:
+            # 数字のファイル名のみ抽出して最大値を探す
+            page_numbers = []
+            for f in existing_files:
+                try:
+                    num = int(os.path.splitext(f)[0])
+                    page_numbers.append(num)
+                except ValueError:
+                    pass
+            
+            if page_numbers:
+                last_page_num = max(page_numbers)
+                last_file = f"{last_page_num:03d}.png"
+                
+                # 最後の画像を読み込んで old に設定
+                if os.path.exists(last_file):
+                    print(f"🔄 既存の画像データ検出: {last_page_num}ページまで保存済み")
+                    img_last = cv2.imread(last_file)
+                    
+                    if img_last is not None:
+                        # 画像サイズが一致するか確認（トリミング設定が変わっている場合は再開しない方が安全だが、ここでは続行）
+                        if img_last.shape == old.shape:
+                            old = img_last
+                            page = last_page_num + 1
+                            print(f"👉 {page}ページ目からキャプチャを再開します")
+                            
+                            # 現在の画面と比較して、同じならページ送りをする
+                            # (ユーザーが前回終了時のページを開いたままにしているケースに対応)
+                            print("   現在のKindle画面を確認中...")
+                            time.sleep(1.0) # ウィンドウアクティブ化待ち等を含める
+                            current_shot = capture_kindle_screenshot()
+                            
+                            if current_shot is not None:
+                                curr_arr = np.array(current_shot)
+                                curr_bgr = cv2.cvtColor(curr_arr, cv2.COLOR_RGB2BGR)
+                                curr_crop = curr_bgr[:, lft:rht]
+                                
+                                if np.array_equal(old, curr_crop):
+                                    print(f"   ⚠️ 現在の画面は最後に保存されたページ({last_page_num})と同じです。")
+                                    print(f"   ▶️ 自動でページ送りキー({page_change_key})を押して次へ進みます...")
+                                    pag.press(page_change_key)
+                                    time.sleep(waitsec)
+                                else:
+                                    print("   ✅ 画面は既に次のページに進んでいるようです。このまま続行します。")
+                        else:
+                            print(f"   ⚠️ 警告: 既存画像のサイズ({img_last.shape})と現在の設定({old.shape})が異なります。1ページ目から上書きします。")
+
+        except Exception as e:
+            print(f"   ❌ 再開処理の準備中にエラーが発生しました（1ページ目から開始します）: {e}")
+    # ---------------------------------------------------------
+
     # 最大ページ数（指定がなければ無制限）
     max_pages_value = max_pages_limit if max_pages_limit is not None else float('inf')
     
@@ -415,12 +473,20 @@ if __name__ == "__main__":
         default=0,
         help="右部トリミング（ピクセル）（デフォルト: 0）"
     )
+    parser.add_argument(
+        "--page-key",
+        type=str,
+        default="right",
+        choices=["right", "left"],
+        help="ページ送りキー（right: 横書き用, left: 縦書き用）（デフォルト: right）"
+    )
     
     args = parser.parse_args()
     
     # グローバル変数を設定
     max_pages = args.max_pages
     waitsec = args.wait
+    page_change_key = args.page_key
     crop_top = args.crop_top
     crop_bottom = args.crop_bottom
     crop_left = args.crop_left
@@ -430,6 +496,7 @@ if __name__ == "__main__":
     
     print(f"🚀 Kindle キャプチャツール起動")
     print(f"  待機時間: {waitsec}秒")
+    print(f"  ページ送りキー: {page_change_key}")
     if max_pages is not None:
         print(f"  最大ページ数: {max_pages}ページ")
     if crop_top > 0 or crop_bottom > 0 or crop_left > 0 or crop_right > 0:

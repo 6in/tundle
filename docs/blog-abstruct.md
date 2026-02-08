@@ -41,21 +41,118 @@ Kindleの画面 → パシャパシャ撮影 → OCRで文字認識 → キレ�
 
 ### 魔法のワークフロー 🪄
 
-1.  **Kindleアプリ（macOS）** 📖  自動でページをめくってスクショ撮影！
-2.  **画像処理** 🖼️  余白をカットしてキレイに整形
-3.  **YomiToku OCR** 👁️  日本語もバッチリ認識してテキスト化
-4.  **HTML化** 🎨  Tailwind CSSでおしゃれにデザイン
-5.  **PDF生成** 📄  NotebookLMが読みやすいA1サイズで出力
+1.  **Kindleアプリ（macOS）** 📖  
+    Python(`pyautogui` + `Quartz`)が自動でページをめくってスクショ撮影！
+    途中で止まっても大丈夫。リランすれば自動で続きから再開する「**賢いレジューム機能**」付き。
+
+2.  **画像保存 & 整理** 🖼️  
+    キャプチャした画像は専用の `images/` フォルダに整理。
+    実は開発中に「色が反転するバグ（RGBとBGRの取り違え）」に遭遇しましたが、今はカラープロファイルも完璧です✨
+
+3.  **YomiToku OCR** 👁️  
+    ここが心臓部。日本語に特化したAI OCR「YomiToku」で画像を解析。
+    縦書き、横書き、ルビまで...驚くほど正確にテキスト化します。
+    GPU（Metal）対応なので、MacBookなら爆速で処理完了！
+
+4.  **HTML化 & ビューワー生成** 🎨  
+    OCR結果をモダンなブラウザで見れるビューワーに変換。
+    **「左にオリジナル画像、右にOCRテキスト」**を並べて表示する「対照モード」を搭載。
+    これでOCRの答え合わせも一瞬です。
+
+5.  **PDF生成 (for AI & Humans)** 📄  
+    用途に合わせて2種類のPDFを自動生成！
+    - **Full PDF (for AI)**:  
+      OCRテキストをベースに再構築された、AI分析に最適なPDFです。
+      **NotebookLMでの読み取りエラー**を徹底的に回避するため、ファイルを指定ページ数で**自動分割**する機能を搭載。
+      「ファイルが大きすぎて読み込めません」というAIあるあるエラーともおさらばです 👋
+    - **Light PDF (for Humans)**:  
+      スマホで読むための、画像を16階調グレースケールに圧縮した軽量版。
 
 ---
 
-## 3. こだわりのポイントを紹介させて！ 🛠️
+## 3. 技術的なこだわり（マニア向け） 🤓
 
-### 🍎 macOSユーザーのために作りました
-Mac標準の機能を使っているから、Kindleアプリを自動で見つけてウィンドウサイズも調整。マルチモニターでも大丈夫！
-ヘッダーやフッターの余計な部分もカット（トリミング）して、中身だけに集中できます✂️
+### � 処理フロー図 (Mermaid)
 
-### 👁️ 日本語OCR「YomiToku」の実力がスゴイ！
+全体のデータフローはこんな感じです。各ステップが疎結合になっていて、途中で止まっても再開しやすい設計になっています。
+
+```mermaid
+graph TD
+    %% Actors
+    User((User))
+    Kindle[Kindle for Mac]
+    NotebookLM[NotebookLM]
+
+    subgraph Step1 [Step 1: Capture]
+        S1_Resume{Resume Check}
+        S1_Proc[Screen Capture & Crop]
+        Images[("Images Folder\n(images/*.png)")]
+    end
+
+    subgraph Step2 [Step 2: OCR & HTML]
+        S2_Resume{Resume Check}
+        S2_Proc[YomiToku OCR]
+        S2_Gen[HTML Generation]
+        HtmlFiles[("HTML Folder\n(html/*.html)")]
+        ViewerFiles[("Viewer Files\n(index.html, server.py)")]
+    end
+
+    subgraph Step3 [Step 3: PDF for AI]
+        S3_Proc[Playwright Renderer]
+        S3_Split[PDF Splitter]
+        AiPdf[("AI PDF\n(book.pdf / book-*.pdf)")]
+    end
+    
+    subgraph Step4 [Step 4: PDF for Humans]
+        S4_Proc[Grayscale & Quantize]
+        S4_Merge[Image Merge]
+        LightPdf[("Light PDF\n(book_light.pdf)")]
+    end
+
+    %% Flow Connections
+    User -->|Run Script| S1_Proc
+    S1_Proc <-->|Page Turn / Screenshot| Kindle
+    S1_Resume -.->|Check Exists| Images
+    S1_Proc -->|Save| Images
+
+    Images -->|Input| S2_Proc
+    Images -->|Input| S4_Proc
+
+    S2_Resume -.->|Check Exists| HtmlFiles
+    S2_Proc --> S2_Gen
+    S2_Gen -->|Save| HtmlFiles
+    S2_Gen -->|Generate| ViewerFiles
+
+    HtmlFiles -->|Input| S3_Proc
+    S3_Proc --> S3_Split
+    S3_Split -->|Save| AiPdf
+
+    S4_Proc --> S4_Merge
+    S4_Merge -->|Save| LightPdf
+
+    %% Usage Links
+    ViewerFiles -.->|Local Preview| User
+    AiPdf -.->|Upload| NotebookLM
+    LightPdf -.->|Mobile Read| User
+```
+
+### �🔍 検索機能の「自前実装」
+最初はブラウザ上のJavaScriptだけで全文検索をしようとしたんですが、本1冊分のテキストデータって意外と重いんです...。
+ブラウザが固まってしまう問題が発生しました 😱
+
+そこで、Pythonの `http.server` を拡張して、超軽量な**「ローカル検索APIサーバー」**を内蔵させました！
+ビューワーの検索窓に入力すると、バックグラウンドのPythonサーバーが瞬時に検索して結果を返します。
+これにより、何百ページの専門書でもサクサク検索できるようになりました 🚀
+
+### 🛡️ 堅牢な再開（レジューム）機能
+「500ページの本をキャプチャしてる最中に、300ページ目でエラー落ち...」
+そんな悲劇をなくすために、各ステップに強力なレジューム機能を実装しました。
+- **Step 1 (キャプチャ)**: 既存の画像枚数をチェックし、Kindleの現在ページと比較して自動復帰
+- **Step 2 (OCR)**: 処理済みのHTMLファイルを検知して、未処理分だけを計算
+
+「放っておけば終わってる」という信頼感、大事ですよね。
+
+### 👁️ 日本語OCR「YomiToku」の実力
 ここが一番の推しポイント！💖 
 一般的なOCRだと日本語が文字化けしたり、レイアウトが崩れがち...。
 でも、このツールでは**「YomiToku」**という日本語に超強いエンジンを使っています。
@@ -86,7 +183,7 @@ YomiTokuの精度の高さ（段組み、表、図などが崩れていない様
 
 ```bash
 # リポジトリを持してくる
-git clone https://github.com/yourusername/kindle-capture.git
+git clone https://github.com/6in/tundle.git
 cd kindle-capture
 
 # 準備完了！
@@ -98,9 +195,11 @@ uv run playwright install chromium
 
 ```bash
 # これだけで、キャプチャからPDF作成まで全部やってくれます！
-./kindle-to-pdf.sh --max-pages 100 --pages-per-file 10 \
-  --crop-top 70 --crop-bottom 40 \
-  --title "私の推し本"
+./kindle-to-pdf.sh --max-pages 100 \
+  --pages-per-file 50 \
+  --crop-top 70 --crop-bottom 40 --crop-right 40 \
+  --pdf-filename "タイトル.pdf" \
+  --wait 2.0
 ```
 
 <!-- TODO: 画像の挿入
@@ -183,6 +282,10 @@ uv run playwright install chromium
 ### 参考・リスペクト 🫡
 - **[Kindle書籍をOCRかけてPDF化し、NotebookLMに読み込ませる（Windows編）](https://note.com/lytton_life/n/n523c648fad71?sub_rt=share_sb)**
   - 本ツール開発のきっかけとなった素晴らしい記事です。こちらはWindows環境での実装・解説をされています。「Macでもやりたい！」という強い思いから、今回Mac版を開発しました。
+
+### YomiTokuの紹介ページ 📘
+- **[YomiToku 紹介記事（開発者ノート）](https://note.com/kotaro_kinoshita/n/n70df91659afc)**
+    - 本ツールで使っている日本語OCRエンジンの紹介記事です。精度や特徴が詳しくまとまっています。
 
 ---
 

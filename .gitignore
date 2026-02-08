@@ -10,3 +10,4 @@ wheels/
 .venv
 capture/
 .DS_Store
+work/

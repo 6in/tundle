@@ -16,27 +16,32 @@ def convert_images_to_pdf(input_dir, output_filename="merged_book.pdf", colors=1
     """
     input_path = Path(input_dir)
     input_path = input_path.resolve()
+    # 画像ディレクトリの決定（images/ フォルダがあればそこから、なければルートから）
+    images_dir = input_path / "images"
+    if not images_dir.exists():
+        images_dir = input_path
+
     output_pdf_path = input_path / output_filename
     
-    if not input_path.exists():
-        print(f"エラー: 入力ディレクトリが存在しません: {input_path}")
+    if not images_dir.exists():
+        print(f"エラー: 画像ディレクトリが存在しません: {images_dir}")
         return
 
     # 画像ファイルの取得
     image_files = sorted([
-        f for f in input_path.glob("*") 
+        f for f in images_dir.glob("*") 
         if f.suffix.lower() in ['.png', '.jpg', '.jpeg']
         and not f.name.startswith(".")
     ])
     
     if not image_files:
-        print(f"エラー: 画像ファイルが見つかりません: {input_path}")
+        print(f"エラー: 画像ファイルが見つかりません: {images_dir}")
         return
 
     print("=" * 60)
     print(f"📚 軽量PDF作成ツール")
     print("=" * 60)
-    print(f"入力ディレクトリ: {input_path}")
+    print(f"入力ディレクトリ: {images_dir}")
     print(f"画像数: {len(image_files)}枚")
     print(f"画像処理: {colors}階調グレースケール")
     print("-" * 60)

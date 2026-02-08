@@ -35,7 +35,15 @@ def extract_text_from_html_file(html_path):
 
 def collect_pages(query=None):
     html_files = sorted([f for f in HTML_DIR.glob("*.html") if "temp" not in f.name and f.name != "index.html"])
-    image_files = {img.stem: img for img in BASE_DIR.glob("*.png")} | {img.stem: img for img in BASE_DIR.glob("*.jpg")} | {img.stem: img for img in BASE_DIR.glob("*.jpeg")}
+    
+    # 画像ディレクトリの決定（images/ フォルダがあればそこから、なければルートから）
+    images_dir = BASE_DIR / "images"
+    if not images_dir.exists():
+        images_dir = BASE_DIR
+
+    image_files = {img.stem: img for img in images_dir.glob("*.png")} | \
+                  {img.stem: img for img in images_dir.glob("*.jpg")} | \
+                  {img.stem: img for img in images_dir.glob("*.jpeg")}
 
     pages = []
     q = (query or "").lower().strip()
