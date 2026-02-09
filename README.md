@@ -31,7 +31,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ```bash
 git clone <このリポジトリのURL>
-cd kindle-capture
+cd tundle
 ```
 
 ### 3. 依存関係のインストール
