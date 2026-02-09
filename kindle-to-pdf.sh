@@ -112,6 +112,7 @@ done
 # パス設定
 CAPTURE_DIR="${BASE_DIR}/${TITLE}"
 HTML_DIR="${CAPTURE_DIR}/html"
+PDF_PATH="${CAPTURE_DIR}"
 
 echo -e "${YELLOW}設定:${NC}"
 echo "  タイトル: ${TITLE}"
@@ -157,7 +158,7 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo -e "${GREEN}Step 3: PDF結合${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-STEP3_CMD="uv run python step3.py ${HTML_DIR} --output-filename ${PDF_FILENAME}"
+STEP3_CMD="uv run python step3.py ${HTML_DIR} --output ${PDF_PATH}/${PDF_FILENAME}"
 
 if [ -n "$PAGES_PER_FILE" ]; then
     STEP3_CMD="${STEP3_CMD} --pages-per-file ${PAGES_PER_FILE}"
