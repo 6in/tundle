@@ -12,6 +12,7 @@ dependencies = [
     "pyobjc-framework-Quartz>=10.0",
     "pyobjc-framework-Cocoa>=10.0",
     "reportlab>=4.4.9",
+    "weasyprint>=68.1",
     "yomitoku>=0.10.3",
     "pdfminer-six>=20260107",
     "beautifulsoup4>=4.14.3",

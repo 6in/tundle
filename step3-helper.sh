@@ -4,6 +4,9 @@
 
 set -e
 
+# WeasyPrint用のライブラリパス設定
+export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"
+
 if [ $# -lt 1 ]; then
     echo "使用方法: ./step3-helper.sh <title> [pages-per-file]"
     echo ""

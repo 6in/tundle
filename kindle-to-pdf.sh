@@ -7,6 +7,9 @@
 
 set -e  # エラーで停止
 
+# WeasyPrint用のライブラリパス設定
+export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"
+
 # 色定義
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'

@@ -42,14 +42,29 @@ uv sync
 
 これで以下のパッケージが自動インストールされます：
 - yomitoku (OCRエンジン)
-- playwright (PDF生成)
+- weasyprint (HTML→PDF生成)
 - pillow (画像処理)
 - その他の依存関係
 
-### 4. Playwright (Chromium)のセットアップ
+### 4. WeasyPrint用システムライブラリのインストール（macOS）
 
 ```bash
-uv run playwright install chromium
+brew install pango gdk-pixbuf libffi gobject-introspection
+```
+
+### 5. WeasyPrint用環境変数の設定（macOS）
+
+一時的に設定する場合：
+
+```bash
+export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"
+```
+
+恒久的に設定する場合（zshの例）：
+
+```bash
+echo 'export DYLD_LIBRARY_PATH="/opt/homebrew/lib:$DYLD_LIBRARY_PATH"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
 ## 使い方
@@ -174,10 +189,10 @@ uv run python step2.py capture/20260208000229 --output-dir capture/2026020800022
 
 ### Step 3: PDF生成 (step3.py)
 
-HTMLをPlaywrightでPDFに変換します。
+HTMLをWeasyPrintでPDFに変換します（A1サイズ、HTMLレイアウト再現）。
 
 ```bash
-uv run python step3.py capture/20260208000229/html --output-filename book.pdf
+uv run python step3.py capture/20260208000229/html --output capture/20260208000229/book.pdf
 ```
 
 ### Step 4: 軽量PDF生成 (step4.py)
