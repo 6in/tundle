@@ -1,240 +1,239 @@
 #!/usr/bin/env python3
 """
-KindleキャプチャのHTML変換結果を1つのPDFファイルとして出力
+POC: HTMLからテキストと画像を抽出し、1HTML=1ページのPDFを生成
+- ページサイズ: A1
+- テキストは上から流し込み
+- 画像は上から順番に縦積み（重なりなし）
 """
-
 import argparse
+import base64
+import io
+import re
 from pathlib import Path
-from playwright.sync_api import sync_playwright
-from pypdf import PdfWriter
-import tempfile
-import http.server
-import socketserver
-import threading
-import time
+from typing import List, Tuple
+
+from bs4 import BeautifulSoup
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A1
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.lib.utils import ImageReader
+from PIL import Image
 
 
-def convert_html_to_pdf(input_dir, output_dir=None, output_filename="output.pdf", pages_per_file=None):
+def extract_text_and_images(html_path: Path) -> Tuple[str, List[Tuple[str, bytes]]]:
     """
-    HTMLファイルを1つのPDFに結合して出力（オプションでページ分割）
-    
-    Args:
-        input_dir: 入力HTMLディレクトリ
-        output_dir: 出力PDFディレクトリ（省略時は input_dirの親ディレクトリ）
-        output_filename: 出力PDFファイル名（デフォルト: output.pdf）
-        pages_per_file: ページ分割数（Noneの場合は分割しない）
+    HTMLからテキストと画像データを抽出
+    Returns:
+        text: 抽出テキスト
+        images: [(name, image_bytes)]
     """
-    input_path = Path(input_dir)
-    
-    if not input_path.exists():
-        print(f"エラー: 入力ディレクトリが存在しません: {input_dir}")
-        return
-    
-    # 出力ディレクトリの設定
-    if output_dir is None:
-        output_path = input_path.parent  # titleフォルダ直下に出力
-    else:
-        output_path = Path(output_dir)
-    
-    output_path.mkdir(parents=True, exist_ok=True)
-    
-    # 絶対パスに変換
-    input_path = input_path.resolve()
-    output_path = output_path.resolve()
-    
-    # HTMLファイルを取得
-    html_files = sorted(input_path.glob("*.html"))
-    
+    html = html_path.read_text(encoding="utf-8", errors="ignore")
+    soup = BeautifulSoup(html, "html.parser")
+
+    # script/styleは除去
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+
+    # 画像抽出
+    images = []
+    for idx, img in enumerate(soup.find_all("img"), 1):
+        src = img.get("src")
+        if not src:
+            continue
+        if src.startswith("data:"):
+            # data URI
+            match = re.match(r"data:(.*?);base64,(.*)", src, re.DOTALL)
+            if not match:
+                continue
+            b64 = match.group(2)
+            try:
+                image_bytes = base64.b64decode(b64)
+                images.append((f"data_{idx}", image_bytes))
+            except Exception:
+                continue
+        else:
+            # 相対パスの画像
+            img_path = (html_path.parent / src).resolve()
+            if img_path.exists():
+                try:
+                    images.append((img_path.name, img_path.read_bytes()))
+                except Exception:
+                    continue
+
+    # テキスト抽出
+    text = soup.get_text("\n")
+    # 連続空白の整理
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = text.strip()
+
+    return text, images
+
+
+def draw_wrapped_text(c, text: str, x: float, y: float, max_width: float, leading: float) -> float:
+    """簡易的な折り返しでテキストを描画し、描画後のy座標を返す"""
+    lines = []
+    for raw_line in text.split("\n"):
+        if not raw_line:
+            lines.append("")
+            continue
+        line = ""
+        for ch in raw_line:
+            test = line + ch
+            if pdfmetrics.stringWidth(test, "HeiseiMin-W3", 10) <= max_width:
+                line = test
+            else:
+                lines.append(line)
+                line = ch
+        lines.append(line)
+
+    for line in lines:
+        if y < 20 * mm:
+            break
+        c.drawString(x, y, line)
+        y -= leading
+    return y
+
+
+def draw_images_stacked(c, images: List[Tuple[str, bytes]], x: float, y: float, max_width: float) -> float:
+    """画像を上から順に縦積みで描画"""
+    for name, data in images:
+        if y < 30 * mm:
+            break
+        try:
+            img = Image.open(io.BytesIO(data))
+            w, h = img.size
+            scale = min(1.0, max_width / w)
+            draw_w = w * scale
+            draw_h = h * scale
+            
+            if y - draw_h < 20 * mm:
+                break
+
+            c.drawImage(ImageReader(img), x, y - draw_h, width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
+            y -= (draw_h + 8)
+        except Exception:
+            continue
+    return y
+
+
+def generate_pdf(input_dir: Path, output_path: Path, pages_per_file: int = None):
+    html_files = sorted([f for f in input_dir.glob("*.html") if "index.html" not in f.name and "temp" not in f.name])
     if not html_files:
-        print(f"エラー: HTMLファイルが見つかりません: {input_dir}")
+        print(f"HTMLファイルが見つかりません: {input_dir}")
         return
+
+    pdfmetrics.registerFont(UnicodeCIDFont("HeiseiMin-W3"))
     
     print("=" * 60)
-    print(f"📄 HTML → PDF変換（1ファイルに結合）")
+    if pages_per_file:
+        print(f"📄 HTML → PDF変換（{pages_per_file}ページごとに分割）")
+    else:
+        print(f"📄 HTML → PDF変換")
     print("=" * 60)
-    print(f"入力ディレクトリ: {input_path}")
-    print(f"出力ディレクトリ: {output_path}")
-    print(f"出力ファイル名: {output_filename}")
     print(f"処理対象ファイル数: {len(html_files)}ファイル")
     print()
     
-    # HTTPサーバーを起動
-    PORT = 0  # 0を指定すると自動的に空いているポートを使用
-    server = None
-    server_thread = None
+    width, height = A1
+    margin_x = 25 * mm
+    margin_y = 25 * mm
+    max_width = width - 2 * margin_x
+    leading = 16
     
-    try:
-        # サーバーハンドラーを作成（入力ディレクトリをルートとする）
-        handler = http.server.SimpleHTTPRequestHandler
+    output_files = []
+    
+    if pages_per_file is None:
+        # 分割なし：1つのPDFに全て
+        c = canvas.Canvas(str(output_path), pagesize=A1)
+        for i, html_path in enumerate(html_files, 1):
+            text, images = extract_text_and_images(html_path)
+            c.setFont("HeiseiMin-W3", 10)
+
+            y = height - margin_y
+            if text:
+                y = draw_wrapped_text(c, text, margin_x, y, max_width, leading)
+                y -= 10
+            if images:
+                y = draw_images_stacked(c, images, margin_x, y, max_width)
+
+            c.showPage()
+            print(f"[{i}/{len(html_files)}] OK: {html_path.name}")
+
+        c.save()
+        print(f"\n✅ PDF作成完了: {output_path}")
+        output_files.append(output_path)
+    else:
+        # 分割あり：pages_per_fileごとにPDFを分割
+        base_name = output_path.stem
+        output_dir = output_path.parent
+        file_count = 0
+        c = None
+        page_count = 0
         
-        # ディレクトリを変更してサーバー起動
-        import os
-        original_dir = os.getcwd()
-        os.chdir(input_path)
-        
-        server = socketserver.TCPServer(("", PORT), handler)
-        PORT = server.server_address[1]  # 実際に割り当てられたポート番号を取得
-        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-        server_thread.start()
-        
-        print(f"🌐 HTTPサーバー起動: http://localhost:{PORT}")
-        time.sleep(1)  # サーバー起動を待機
-        
-        # 一時ディレクトリで個別PDFを作成
-        temp_dir = Path(tempfile.mkdtemp())
-        temp_pdfs = []
-        
-        # Playwrightでブラウザを起動
-        with sync_playwright() as p:
-            print("ブラウザを起動しています...")
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page(viewport={'width': 2800, 'height': 4000})
-            
-            # ページ分割処理の初期化
-            if pages_per_file is not None:
-                print(f"\n{pages_per_file}ページごとに分割保存します")
-                base_name = output_filename.rsplit('.', 1)[0]
-                extension = output_filename.rsplit('.', 1)[1] if '.' in output_filename else 'pdf'
-                file_count = 0
-                merger = PdfWriter()
-                output_files = []
-            
-            # 各HTMLをPDFに変換
-            for idx, html_file in enumerate(html_files, 1):
-                print(f"[{idx}/{len(html_files)}] 処理中: {html_file.name}")
-                
-                try:
-                    # HTTPサーバー経由でアクセス
-                    file_url = f"http://localhost:{PORT}/{html_file.name}"
-                    page.goto(file_url, wait_until="networkidle")
-                    
-                    # 一時PDFファイルを生成
-                    temp_pdf = temp_dir / f"{html_file.stem}.pdf"
-                    temp_pdfs.append(temp_pdf)
-                    
-                    # PDFとして保存（A1サイズで1ページに収める）
-                    page.pdf(
-                        path=str(temp_pdf),
-                        format="A1",
-                        print_background=True,
-                        margin={
-                            "top": "10mm",
-                            "bottom": "10mm",
-                            "left": "10mm",
-                            "right": "10mm"
-                        }
-                    )
-                    
-                    print(f"  ✓ 変換完了")
-                    
-                    # ページ分割処理：指定ページ数ごとにPDF保存
-                    if pages_per_file is not None:
-                        merger.append(str(temp_pdf))
-                        current_pages = len(merger.pages)
-                        
-                        # 指定ページ数に達したら保存
-                        if current_pages >= pages_per_file:
-                            file_count += 1
-                            output_pdf = output_path / f"{base_name}-{file_count:03d}.{extension}"
-                            print(f"  💾 {current_pages}ページ分を保存中: {output_pdf.name}")
-                            merger.write(str(output_pdf))
-                            merger.close()
-                            output_files.append(output_pdf)
-                            print(f"  ✅ 保存完了: {output_pdf.name}")
-                            
-                            # 次のファイル用にリセット
-                            merger = PdfWriter()
-                    
-                except Exception as e:
-                    print(f"  ✗ エラー: {e}")
-            
-            # ページ分割処理：残りのページを保存
-            if pages_per_file is not None and len(merger.pages) > 0:
+        for i, html_path in enumerate(html_files, 1):
+            # 新しいファイルを開く
+            if c is None:
                 file_count += 1
-                remaining_pages = len(merger.pages)
-                output_pdf = output_path / f"{base_name}-{file_count:03d}.{extension}"
-                print(f"\n💾 残り{remaining_pages}ページを保存中: {output_pdf.name}")
-                merger.write(str(output_pdf))
-                merger.close()
-                output_files.append(output_pdf)
-                print(f"✅ 保存完了: {output_pdf.name}")
+                pdf_path = output_dir / f"{base_name}-{file_count:03d}.pdf"
+                c = canvas.Canvas(str(pdf_path), pagesize=A1)
+                page_count = 0
+                print(f"\n📋 ファイル {file_count}: {pdf_path.name}")
             
-            browser.close()
-        
-        # 分割なしの場合の結合処理
-        if pages_per_file is None:
-            print("\nPDFを結合しています...")
-            merger = PdfWriter()
+            text, images = extract_text_and_images(html_path)
+            c.setFont("HeiseiMin-W3", 10)
+
+            y = height - margin_y
+            if text:
+                y = draw_wrapped_text(c, text, margin_x, y, max_width, leading)
+                y -= 10
+            if images:
+                y = draw_images_stacked(c, images, margin_x, y, max_width)
+
+            c.showPage()
+            page_count += 1
+            print(f"  [{i}/{len(html_files)}] ページ {page_count}: {html_path.name}")
             
-            for temp_pdf in temp_pdfs:
-                if temp_pdf.exists():
-                    merger.append(str(temp_pdf))
-            
-            # 結合したPDFを保存
-            output_pdf = output_path / output_filename
-            merger.write(str(output_pdf))
-            merger.close()
-            
-            print("\n" + "=" * 60)
-            print(f"✅ 変換完了: {len(html_files)}ファイルを結合")
-            print(f"📁 出力先: {output_pdf}")
-            print("=" * 60)
-        else:
-            print("\n" + "=" * 60)
-            print(f"✅ 変換完了: {len(html_files)}ファイルを{file_count}個のPDFに分割")
-            for output_pdf in output_files:
-                print(f"📁 {output_pdf.name}")
-            print("=" * 60)
+            # pages_per_fileに達したら保存して次のファイルへ
+            if page_count >= pages_per_file:
+                c.save()
+                print(f"  ✅ 保存: {pdf_path.name} ({page_count}ページ)")
+                output_files.append(pdf_path)
+                c = None
         
-        # 一時ファイルを削除
-        for temp_pdf in temp_pdfs:
-            if temp_pdf.exists():
-                temp_pdf.unlink()
-        temp_dir.rmdir()
+        # 残りのページを保存
+        if c is not None:
+            c.save()
+            print(f"  ✅ 保存: {pdf_path.name} ({page_count}ページ)")
+            output_files.append(pdf_path)
         
-    finally:
-        # HTTPサーバーを停止
-        if server:
-            print("\n🛑 HTTPサーバーを停止しています...")
-            server.shutdown()
-            server.server_close()
-        
-        # 元のディレクトリに戻る
-        os.chdir(original_dir)
+        print("\n" + "=" * 60)
+        print(f"✅ PDF作成完了: {file_count}ファイル")
+        for f in output_files:
+            print(f"📁 {f.name}")
+        print("=" * 60)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="HTMLからテキスト/画像を抽出してPDFを生成")
+    parser.add_argument("input_dir", help="HTMLフォルダ (例: capture/tik-tok/html)")
+    parser.add_argument("--output", default=None, help="出力PDF (省略時: input_dir/../output.pdf)")
+    parser.add_argument("--pages-per-file", type=int, default=None, help="ページ分割数（例: 50）")
+    args = parser.parse_args()
+
+    input_dir = Path(args.input_dir)
+    if not input_dir.exists():
+        print(f"入力フォルダが存在しません: {input_dir}")
+        return
+
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        output_path = input_dir.parent / "output.pdf"
+
+    generate_pdf(input_dir, output_path, args.pages_per_file)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="KindleキャプチャのHTMLを1つのPDFに結合します",
-        epilog="""
-使用例:
-  uv run python step3.py capture/test2/html
-  uv run python step3.py capture/test2/html --output-dir /path/to/pdf --output-filename book.pdf
-  uv run python step3.py capture/test2/html --pages-per-file 50 --output-filename book.pdf
-        """
-    )
-    parser.add_argument(
-        "input_dir",
-        help="入力HTMLディレクトリ（例: capture/test2/html）",
-    )
-    parser.add_argument(
-        "--output-dir",
-        help="出力PDFディレクトリ（省略時は input_dirの親ディレクトリ）",
-        default=None,
-    )
-    parser.add_argument(
-        "--output-filename",
-        help="出力PDFファイル名（デフォルト: output.pdf）",
-        default="output.pdf",
-    )
-    parser.add_argument(
-        "--pages-per-file",
-        type=int,
-        help="ページ分割数（省略時は分割しない）",
-        default=None,
-    )
-    
-    args = parser.parse_args()
-    
-    # 実行
-    convert_html_to_pdf(args.input_dir, args.output_dir, args.output_filename, args.pages_per_file)
+    main()
