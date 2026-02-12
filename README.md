@@ -85,6 +85,7 @@ Kindle for Macで本を開いた状態で実行すると、自動でキャプチ
 | `--base-dir DIR` | 保存先ベースディレクトリ | `capture` |
 | `--max-pages N` | 最大キャプチャページ数 | 無制限 |
 | `--wait SECONDS` | ページめくり待機時間（秒） | 1.0 |
+| `--page-key KEY` | ページ送りキー（right/left） | `right` |
 | `--crop-top PIXELS` | 上部トリミング（ピクセル） | 0 |
 | `--crop-bottom PIXELS` | 下部トリミング（ピクセル） | 0 |
 | `--crop-left PIXELS` | 左部トリミング（ピクセル） | 0 |
@@ -191,9 +192,29 @@ uv run python step2.py capture/20260208000229 --output-dir capture/2026020800022
 
 HTMLをWeasyPrintでPDFに変換します（A1サイズ、HTMLレイアウト再現）。
 
+#### 基本的な使い方
+
 ```bash
 uv run python step3.py capture/20260208000229/html --output capture/20260208000229/book.pdf
 ```
+
+#### 分割出力（NotebookLM用）
+
+50ページごとに分割する場合：
+
+```bash
+uv run python step3.py capture/20260208000229/html --output capture/20260208000229/book.pdf --pages-per-file 50
+```
+
+出力：`book-001.pdf`, `book-002.pdf`, `book-003.pdf`, ...
+
+#### step3.pyのオプション
+
+| オプション | 説明 | デフォルト |
+|---|---|---|
+| `input_dir` | HTMLフォルダ（位置引数） | 必須 |
+| `--output` | 出力PDFパス | `input_dir/../output.pdf` |
+| `--pages-per-file` | ページ分割数 | なし（分割しない） |
 
 ### Step 4: 軽量PDF生成 (step4.py)
 
