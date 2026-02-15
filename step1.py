@@ -16,7 +16,7 @@ import sys
 import argparse
 
 # グローバル変数の設定
-kindle_window_title = "Kindle"  # Kindle for Macのアプリケーション名
+kindle_window_title = "Kindle"  # キャプチャ対象のアプリケーション名（コマンドライン引数で上書き）
 page_change_key = "right"  # 次のページへ移動するキー（コマンドライン引数で上書き）
 kindle_fullscreen_wait = 5  # フルスクリーン後の待機時間(秒)
 l_margin = 1  # 左側マージン
@@ -39,9 +39,9 @@ output_title = None  # 保存先フォルダ名
 
 def find_kindle_window():
     """
-    Kindleアプリケーションを検索してプロセスを返す関数
+    指定されたアプリケーションを検索してプロセスを返す関数
     Returns:
-        app: Kindleアプリケーションのプロセス。見つからない場合はNone
+        app: 対象アプリケーションのプロセス。見つからない場合はNone
     """
     workspace = NSWorkspace.sharedWorkspace()
     running_apps = workspace.runningApplications()
@@ -64,8 +64,8 @@ def setup_kindle_window(app):
     time.sleep(0.5)
 
     # AppleScriptでウィンドウを前面に持ってくる
-    script = """tell application "System Events"
-        set frontmost of process "Kindle" to true
+    script = f"""tell application "System Events"
+        set frontmost of process "{kindle_window_title}" to true
     end tell"""
     subprocess.run(["osascript", "-e", script], check=False)
     time.sleep(1)
@@ -480,6 +480,12 @@ if __name__ == "__main__":
         choices=["right", "left"],
         help="ページ送りキー（right: 横書き用, left: 縦書き用）（デフォルト: right）"
     )
+    parser.add_argument(
+        "--app-title",
+        type=str,
+        default="Kindle",
+        help="キャプチャ対象のアプリケーション名（デフォルト: Kindle）"
+    )
     
     args = parser.parse_args()
     
@@ -487,6 +493,7 @@ if __name__ == "__main__":
     max_pages = args.max_pages
     waitsec = args.wait
     page_change_key = args.page_key
+    kindle_window_title = args.app_title
     crop_top = args.crop_top
     crop_bottom = args.crop_bottom
     crop_left = args.crop_left
@@ -494,7 +501,8 @@ if __name__ == "__main__":
     output_dir = args.output_dir
     output_title = args.title
     
-    print(f"🚀 Kindle キャプチャツール起動")
+    print(f"🚀 キャプチャツール起動")
+    print(f"  対象アプリ: {kindle_window_title}")
     print(f"  待機時間: {waitsec}秒")
     print(f"  ページ送りキー: {page_change_key}")
     if max_pages is not None:

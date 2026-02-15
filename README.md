@@ -76,6 +76,7 @@ source ~/.zshrc
 ```
 
 Kindle for Macで本を開いた状態で実行すると、自動でキャプチャ→OCR→PDF変換を行います。
+`--app-title` オプションで他のアプリ（Apple Books、PDF Expertなど）もキャプチャ可能です。
 
 ### オプション
 
@@ -86,6 +87,7 @@ Kindle for Macで本を開いた状態で実行すると、自動でキャプチ
 | `--max-pages N` | 最大キャプチャページ数 | 無制限 |
 | `--wait SECONDS` | ページめくり待機時間（秒） | 1.0 |
 | `--page-key KEY` | ページ送りキー（right/left） | `right` |
+| `--app-title TITLE` | キャプチャ対象アプリ名 | `Kindle` |
 | `--crop-top PIXELS` | 上部トリミング（ピクセル） | 0 |
 | `--crop-bottom PIXELS` | 下部トリミング（ピクセル） | 0 |
 | `--crop-left PIXELS` | 左部トリミング（ピクセル） | 0 |
@@ -132,6 +134,21 @@ Kindleのヘッダー/フッターを削除する場合：
   --wait 1.5 \
   --pdf-filename complete.pdf \
   --pages-per-file 50
+```
+
+#### 5. 別のアプリをキャプチャ
+
+Kindle以外のアプリ（Apple Books、PDF Expertなど）もキャプチャできます：
+
+```bash
+# Apple Books をキャプチャ
+./kindle-to-pdf.sh --app-title "Books" --max-pages 10 --title apple-books-test
+
+# PDF Expert をキャプチャ
+./kindle-to-pdf.sh --app-title "PDF Expert" --max-pages 20 --title pdf-expert-book
+
+# Preview をキャプチャ
+./kindle-to-pdf.sh --app-title "Preview" --max-pages 15
 ```
 
 ## 出力ファイル

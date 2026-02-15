@@ -27,6 +27,7 @@ BASE_DIR="capture"
 MAX_PAGES=""
 WAIT_TIME="1.0"
 PAGE_KEY="right"
+APP_TITLE="Kindle"
 CROP_TOP="0"
 CROP_BOTTOM="0"
 CROP_LEFT="0"
@@ -55,6 +56,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --page-key)
             PAGE_KEY="$2"
+            shift 2
+            ;;
+        --app-title)
+            APP_TITLE="$2"
             shift 2
             ;;
         --crop-top)
@@ -90,6 +95,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --max-pages N              最大ページ数"
             echo "  --wait SECONDS             ページ待機時間 (デフォルト: 1.0)"
             echo "  --page-key KEY             ページ送りキー (right/left, デフォルト: right)"
+            echo "  --app-title TITLE          キャプチャ対象アプリ名 (デフォルト: Kindle)"
             echo "  --crop-top PIXELS          上部トリミング"
             echo "  --crop-bottom PIXELS       下部トリミング"
             echo "  --crop-left PIXELS         左部トリミング"
@@ -131,7 +137,7 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo -e "${GREEN}Step 1: 画像キャプチャ${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
-STEP1_CMD="uv run python step1.py --output-dir ${BASE_DIR} --title ${TITLE} --wait ${WAIT_TIME} --page-key ${PAGE_KEY}"
+STEP1_CMD="uv run python step1.py --output-dir ${BASE_DIR} --title ${TITLE} --wait ${WAIT_TIME} --page-key ${PAGE_KEY} --app-title ${APP_TITLE}"
 STEP1_CMD="${STEP1_CMD} --crop-top ${CROP_TOP} --crop-bottom ${CROP_BOTTOM}"
 STEP1_CMD="${STEP1_CMD} --crop-left ${CROP_LEFT} --crop-right ${CROP_RIGHT}"
 
